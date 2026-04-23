@@ -108,8 +108,9 @@ def to_num(s: str):
 
 
 def extract_footnote_number(text: str):
-    """Pull the first standalone number from a footnote (handles $, %, commas)."""
-    matches = re.findall(r'\$?([\d,]+(?:\.\d+)?)%?', text)
+    """Pull the first meaningful number from a footnote, skipping the leading (N) reference."""
+    clean = re.sub(r'^\(\d+\)\s*', '', text.strip())
+    matches = re.findall(r'\$?([\d,]+(?:\.\d+)?)%?', clean)
     for m in matches:
         v = m.replace(",", "")
         try:
@@ -276,12 +277,12 @@ def build_excel(tagged_rows: list[tuple[str, list]]) -> bytes:
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="PPM Strats Extractor",
+    page_title="PDF Strats Extractor",
     page_icon="📊",
     layout="centered",
 )
 
-st.title("📊 PPM Strats → Excel")
+st.title("📊 PDF Strats → Excel")
 st.caption(
     "Upload a PDF Strats file. "
     "All tables and footnotes are extracted into a single Excel workbook."
