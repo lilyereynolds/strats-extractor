@@ -94,7 +94,7 @@ def is_section_label(text: str) -> bool:
         return False
     if t[0].islower():
         return False
-    if len(t) > 80 and t.endswith("."):   # long sentence = footnote fragment
+    if len(t) > 80:   # long sentence = footnote fragment, not a section title
         return False
     return True
 
@@ -211,7 +211,8 @@ def parse_pdf(pdf_bytes: bytes) -> list[tuple[str, list]]:
 # ── Post-processor ───────────────────────────────────────────────────────────
 
 def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, list]]:
-    # Step 1: merge footnote continuation lines into one row per footnote
+    # Step 1: merge footnote continuation lines into one row per footnote,
+    # skipping over any EMPTY rows that appear mid-footnote in the PDF
     merged = []
     i = 0
     while i < len(tagged_rows):
@@ -220,25 +221,43 @@ def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, li
             text = row_data[0]
             num = row_data[1]
             j = i + 1
-            while j < len(tagged_rows) and tagged_rows[j][0] == FOOTNOTE and not re.match(r'^\(\d+\)', tagged_rows[j][1][0]):
-                text = text + " " + tagged_rows[j][1][0]
-                j += 1
+            while j < len(tagged_rows):
+                t, rd = tagged_rows[j]
+                if t == EMPTY:
+                    j += 1
+                    continue
+                if t == FOOTNOTE and not re.match(r'^\(\d+\)', rd[0]):
+                    text = text + " " + rd[0]
+                    j += 1
+                else:
+                    break
             merged.append((FOOTNOTE, [text, num] + [None] * 8))
             i = j
         else:
             merged.append((rtype, row_data))
             i += 1
 
-    # Step 2: insert one blank row after the last row of each table
-    # (after TOTAL if no footnotes follow, or after the last FOOTNOTE)
+    # Step 2: remove duplicate HEADER rows (same table continuing across pages)
+    deduped = []
+    last_header = None
+    for rtype, row_data in merged:
+        if rtype == HEADER:
+            if row_data == last_header:
+                continue
+            last_header = row_data
+        elif rtype in (DATA, TOTAL):
+            last_header = None
+        deduped.append((rtype, row_data))
+
+    # Step 3: insert one blank row after the last row of each table
     result = []
-    for i, (rtype, row_data) in enumerate(merged):
+    for i, (rtype, row_data) in enumerate(deduped):
         result.append((rtype, row_data))
         if rtype in (TOTAL, FOOTNOTE):
             next_type = None
             has_footer = False
-            for j in range(i + 1, len(merged)):
-                t = merged[j][0]
+            for j in range(i + 1, len(deduped)):
+                t = deduped[j][0]
                 if t == FOOTER:
                     has_footer = True
                 if t not in (EMPTY, FOOTER):
