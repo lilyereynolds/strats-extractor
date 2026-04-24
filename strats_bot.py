@@ -208,6 +208,47 @@ def parse_pdf(pdf_bytes: bytes) -> list[tuple[str, list]]:
     return output
 
 
+# ── Post-processor ───────────────────────────────────────────────────────────
+
+def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, list]]:
+    # Step 1: merge footnote continuation lines into one row per footnote
+    merged = []
+    i = 0
+    while i < len(tagged_rows):
+        rtype, row_data = tagged_rows[i]
+        if rtype == FOOTNOTE:
+            text = row_data[0]
+            num = row_data[1]
+            j = i + 1
+            while j < len(tagged_rows) and tagged_rows[j][0] == FOOTNOTE and not re.match(r'^\(\d+\)', tagged_rows[j][1][0]):
+                text = text + " " + tagged_rows[j][1][0]
+                j += 1
+            merged.append((FOOTNOTE, [text, num] + [None] * 8))
+            i = j
+        else:
+            merged.append((rtype, row_data))
+            i += 1
+
+    # Step 2: insert one blank row after the last row of each table
+    # (after TOTAL if no footnotes follow, or after the last FOOTNOTE)
+    result = []
+    for i, (rtype, row_data) in enumerate(merged):
+        result.append((rtype, row_data))
+        if rtype in (TOTAL, FOOTNOTE):
+            next_type = None
+            has_footer = False
+            for j in range(i + 1, len(merged)):
+                t = merged[j][0]
+                if t == FOOTER:
+                    has_footer = True
+                if t not in (EMPTY, FOOTER):
+                    next_type = t
+                    break
+            if not has_footer and next_type in (HEADER, SECTION):
+                result.append((EMPTY, [None] * 10))
+    return result
+
+
 # ── Excel builder ─────────────────────────────────────────────────────────────
 
 def build_excel(tagged_rows: list[tuple[str, list]]) -> bytes:
@@ -296,7 +337,7 @@ uploaded = st.file_uploader(
 
 if uploaded:
     with st.spinner(f"Extracting from **{uploaded.name}**…"):
-        tagged = parse_pdf(uploaded.read())
+        tagged = post_process_rows(parse_pdf(uploaded.read()))
 
     rows_only = [r for _, r in tagged]
     data_rows = [
