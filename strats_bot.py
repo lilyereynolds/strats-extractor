@@ -237,16 +237,27 @@ def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, li
             merged.append((rtype, row_data))
             i += 1
 
-    # Step 2: remove duplicate HEADER rows (same table continuing across pages)
+    # Step 2: remove duplicate labels
+    # (a) SECTION row immediately before a HEADER with the same label → remove SECTION
+    # (b) HEADER repeated mid-table on a new page → remove the repeat
     deduped = []
-    last_header = None
-    for rtype, row_data in merged:
-        if rtype == HEADER:
-            if row_data == last_header:
-                continue
-            last_header = row_data
-        elif rtype in (DATA, TOTAL):
-            last_header = None
+    in_table = False
+    current_header_label = None
+    for i, (rtype, row_data) in enumerate(merged):
+        if rtype == SECTION:
+            next_row = next(
+                ((t, rd) for t, rd in merged[i + 1:] if t not in (EMPTY, FOOTER)), None
+            )
+            if next_row and next_row[0] == HEADER and next_row[1][0] == row_data[0]:
+                continue  # skip — HEADER below already carries this label
+        elif rtype == HEADER:
+            if in_table and row_data[0] == current_header_label:
+                continue  # cross-page duplicate
+            in_table = True
+            current_header_label = row_data[0]
+        elif rtype == TOTAL:
+            in_table = False
+            current_header_label = None
         deduped.append((rtype, row_data))
 
     # Step 3: insert one blank row after the last row of each table
