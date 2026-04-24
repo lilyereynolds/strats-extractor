@@ -211,8 +211,10 @@ def parse_pdf(pdf_bytes: bytes) -> list[tuple[str, list]]:
 # ── Post-processor ───────────────────────────────────────────────────────────
 
 def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, list]]:
-    # Step 1: merge footnote continuation lines into one row per footnote,
-    # skipping over any EMPTY rows that appear mid-footnote in the PDF
+    # Step 1: collapse ALL footnote rows for a table into a single cell.
+    # Continuation lines (no leading (N)) are joined with a space.
+    # New footnote numbers are joined with a newline.
+    # EMPTY rows between footnote lines are skipped.
     merged = []
     i = 0
     while i < len(tagged_rows):
@@ -226,8 +228,11 @@ def post_process_rows(tagged_rows: list[tuple[str, list]]) -> list[tuple[str, li
                 if t == EMPTY:
                     j += 1
                     continue
-                if t == FOOTNOTE and not re.match(r'^\(\d+\)', rd[0]):
-                    text = text + " " + rd[0]
+                if t == FOOTNOTE:
+                    if re.match(r'^\(\d+\)', rd[0]):
+                        text = text + "\n" + rd[0]  # new footnote number
+                    else:
+                        text = text + " " + rd[0]   # continuation of current
                     j += 1
                 else:
                     break
@@ -326,6 +331,7 @@ def build_excel(tagged_rows: list[tuple[str, list]]) -> bytes:
 
         elif rtype == FOOTNOTE:
             ws.cell(r, 1).font = TNR_REG
+            ws.cell(r, 1).alignment = Alignment(wrap_text=True, vertical="top")
 
         elif rtype == FOOTER:
             ws.cell(r, 1).font = TNR_9
